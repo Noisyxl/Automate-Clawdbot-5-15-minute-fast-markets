@@ -224,7 +224,6 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
             condition_id = m.get("conditionId", "")
             closed = m.get("closed", False)
             if not closed and slug:
-                # Parse end time from question (e.g., "5:30AM-5:35AM ET")
                 end_time = _parse_fast_market_end_time(m.get("question", ""))
                 markets.append({
                     "question": m.get("question", ""),
@@ -239,11 +238,8 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
 
 
 def _parse_fast_market_end_time(question):
-    """Parse end time from fast market question.
-    e.g., 'Bitcoin Up or Down - February 15, 5:30AM-5:35AM ET' → datetime
-    """
+    """Parse end time from fast market question."""
     import re
-    # Match pattern: "Month Day, StartTime-EndTime ET"
     pattern = r'(\w+ \d+),.*?-\s*(\d{1,2}:\d{2}(?:AM|PM))\s*ET'
     match = re.search(pattern, question)
     if not match:
@@ -253,9 +249,7 @@ def _parse_fast_market_end_time(question):
         time_str = match.group(2)
         year = datetime.now(timezone.utc).year
         dt_str = f"{date_str} {year} {time_str}"
-        # Parse as ET (UTC-5)
         dt = datetime.strptime(dt_str, "%B %d %Y %I:%M%p")
-        # Convert ET to UTC (+5 hours)
         dt = dt.replace(tzinfo=timezone.utc) + timedelta(hours=5)
         return dt
     except Exception:
@@ -276,7 +270,6 @@ def find_best_fast_market(markets):
 
     if not candidates:
         return None
-    # Sort by soonest expiring
     candidates.sort(key=lambda x: x[0])
     return candidates[0][1]
 
@@ -286,9 +279,7 @@ def find_best_fast_market(markets):
 # =============================================================================
 
 def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
-    """Get price momentum from Binance public API.
-    Returns: {momentum_pct, direction, price_now, price_then, avg_volume, candles}
-    """
+    """Get price momentum from Binance public API."""
     url = (
         f"https://api.binance.com/api/v3/klines"
         f"?symbol={symbol}&interval=1m&limit={lookback_minutes}"
@@ -298,21 +289,18 @@ def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
         return None
 
     try:
-        # Kline format: [open_time, open, high, low, close, volume, ...]
         candles = result
         if len(candles) < 2:
             return None
 
-        price_then = float(candles[0][1])   # open of oldest candle
-        price_now = float(candles[-1][4])    # close of newest candle
+        price_then = float(candles[0][1])
+        price_now = float(candles[-1][4])
         momentum_pct = ((price_now - price_then) / price_then) * 100
         direction = "up" if momentum_pct > 0 else "down"
 
         volumes = [float(c[5]) for c in candles]
         avg_volume = sum(volumes) / len(volumes)
         latest_volume = volumes[-1]
-
-        # Volume ratio: latest vs average (>1 = above average activity)
         volume_ratio = latest_volume / avg_volume if avg_volume > 0 else 1.0
 
         return {
@@ -338,10 +326,8 @@ def get_coingecko_momentum(asset="bitcoin", lookback_minutes=5):
     price_now = result.get(asset, {}).get("usd")
     if not price_now:
         return None
-    # CoinGecko doesn't give candle data on free tier, so just return current price
-    # Agent would need to track history across calls for momentum
     return {
-        "momentum_pct": 0,  # Can't calculate without history
+        "momentum_pct": 0,
         "direction": "neutral",
         "price_now": price_now,
         "price_then": price_now,
@@ -381,7 +367,6 @@ def import_fast_market_market(api_key, slug):
 
     if not result:
         return None, "No response from import endpoint"
-
     if result.get("error"):
         return None, result.get("error", "Unknown error")
 
@@ -389,7 +374,6 @@ def import_fast_market_market(api_key, slug):
     market_id = result.get("market_id")
 
     if status == "resolved":
-        # Market resolved — check alternatives
         alternatives = result.get("active_alternatives", [])
         if alternatives:
             return None, f"Market resolved. Try alternative: {alternatives[0].get('id')}"
@@ -458,7 +442,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     """Run one cycle of the fast_market trading strategy."""
 
     def log(msg, force=False):
-        """Print unless quiet mode is on. force=True always prints."""
         if not quiet or force:
             print(msg)
 
@@ -490,7 +473,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     api_key = get_api_key()
 
-    # Show positions if requested
     if positions_only:
         log("\n📊 Sprint Positions:")
         positions = get_positions(api_key)
@@ -503,14 +485,12 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
                 log(f"    YES: {pos.get('shares_yes', 0):.1f} | NO: {pos.get('shares_no', 0):.1f} | P&L: ${pos.get('pnl', 0):.2f}")
         return
 
-    # Show portfolio if smart sizing
     if smart_sizing:
         log("\n💰 Portfolio:")
         portfolio = get_portfolio(api_key)
         if portfolio and not portfolio.get("error"):
             log(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
 
-    # Step 1: Discover fast markets
     log(f"\n🔍 Discovering {ASSET} fast markets...")
     markets = discover_fast_market_markets(ASSET, WINDOW)
     log(f"  Found {len(markets)} active fast markets")
@@ -521,7 +501,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             print("📊 Summary: No markets available")
         return
 
-    # Step 2: Find best fast_market to trade
     best = find_best_fast_market(markets)
     if not best:
         log(f"  No fast_markets with >{MIN_TIME_REMAINING}s remaining")
@@ -534,7 +513,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log(f"\n🎯 Selected: {best['question']}")
     log(f"  Expires in: {remaining:.0f}s")
 
-    # Parse current market odds
     try:
         prices = json.loads(best.get("outcome_prices", "[]"))
         market_yes_price = float(prices[0]) if prices else 0.5
@@ -542,13 +520,11 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         market_yes_price = 0.5
     log(f"  Current YES price: ${market_yes_price:.3f}")
 
-    # Fee info (fast markets charge 10% on winnings)
     fee_rate_bps = best.get("fee_rate_bps", 0)
-    fee_rate = fee_rate_bps / 10000  # 1000 bps -> 0.10
+    fee_rate = fee_rate_bps / 10000
     if fee_rate > 0:
         log(f"  Fee rate:         {fee_rate:.0%} (Polymarket fast market fee)")
 
-    # Step 3: Get CEX price momentum
     log(f"\n📈 Fetching {ASSET} price signal ({SIGNAL_SOURCE})...")
     momentum = get_momentum(ASSET, SIGNAL_SOURCE, LOOKBACK_MINUTES)
 
@@ -562,21 +538,17 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     if VOLUME_CONFIDENCE:
         log(f"  Volume ratio: {momentum['volume_ratio']:.2f}x avg")
 
-    # Step 4: Decision logic
     log(f"\n🧠 Analyzing...")
 
     momentum_pct = abs(momentum["momentum_pct"])
     direction = momentum["direction"]
 
-    # Check minimum momentum
     if momentum_pct < MIN_MOMENTUM_PCT:
         log(f"  ⏸️  Momentum {momentum_pct:.3f}% < minimum {MIN_MOMENTUM_PCT}% — skip")
         if not quiet:
             print(f"📊 Summary: No trade (momentum too weak: {momentum_pct:.3f}%)")
         return
 
-    # Calculate expected fair price based on momentum direction
-    # Simple model: strong momentum → higher probability of continuation
     if direction == "up":
         side = "yes"
         divergence = 0.50 + ENTRY_THRESHOLD - market_yes_price
@@ -586,7 +558,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         divergence = market_yes_price - (0.50 - ENTRY_THRESHOLD)
         trade_rationale = f"{ASSET} down {momentum['momentum_pct']:+.3f}% but YES still ${market_yes_price:.3f}"
 
-    # Volume confidence adjustment
     vol_note = ""
     if VOLUME_CONFIDENCE and momentum["volume_ratio"] < 0.5:
         log(f"  ⏸️  Low volume ({momentum['volume_ratio']:.2f}x avg) — weak signal, skip")
@@ -596,20 +567,18 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     elif VOLUME_CONFIDENCE and momentum["volume_ratio"] > 2.0:
         vol_note = f" 📊 (high volume: {momentum['volume_ratio']:.1f}x avg)"
 
-    # Check divergence threshold
     if divergence <= 0:
         log(f"  ⏸️  Market already priced in: divergence {divergence:.3f} ≤ 0 — skip")
         if not quiet:
             print(f"📊 Summary: No trade (market already priced in)")
         return
 
-    # Fee-aware EV check: require enough divergence to cover fees
     if fee_rate > 0:
         buy_price = market_yes_price if side == "yes" else (1 - market_yes_price)
         win_profit = (1 - buy_price) * (1 - fee_rate)
         breakeven = buy_price / (win_profit + buy_price)
-        fee_penalty = breakeven - 0.50  # how much fees shift breakeven above 50%
-        min_divergence = fee_penalty + 0.02  # plus buffer
+        fee_penalty = breakeven - 0.50
+        min_divergence = fee_penalty + 0.02
         log(f"  Breakeven:        {breakeven:.1%} win rate (fee-adjusted, min divergence {min_divergence:.3f})")
         if divergence < min_divergence:
             log(f"  ⏸️  Divergence {divergence:.3f} < fee-adjusted minimum {min_divergence:.3f} — skip")
@@ -617,11 +586,9 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
                 print(f"📊 Summary: No trade (fees eat the edge)")
             return
 
-    # We have a signal!
     position_size = calculate_position_size(api_key, MAX_POSITION_USD, smart_sizing)
     price = market_yes_price if side == "yes" else (1 - market_yes_price)
 
-    # Check minimum order size
     if price > 0:
         min_cost = MIN_SHARES_PER_ORDER * price
         if min_cost > position_size:
@@ -631,7 +598,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log(f"  ✅ Signal: {side.upper()} — {trade_rationale}{vol_note}", force=True)
     log(f"  Divergence: {divergence:.3f}", force=True)
 
-    # Step 5: Import & Trade
     log(f"\n🔗 Importing to Simmer...", force=True)
     market_id, import_error = import_fast_market_market(api_key, best["slug"])
 
@@ -653,7 +619,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             trade_id = result.get("trade_id")
             log(f"  ✅ Bought {shares:.1f} {side.upper()} shares @ ${price:.3f}", force=True)
 
-            # Log to trade journal
             if trade_id and JOURNAL_AVAILABLE:
                 confidence = min(0.9, 0.5 + divergence + (momentum_pct / 100))
                 log_trade(
@@ -670,7 +635,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             error = result.get("error", "Unknown error") if result else "No response"
             log(f"  ❌ Trade failed: {error}", force=True)
 
-    # Summary
     total_trades = 0 if dry_run else (1 if result and result.get("success") else 0)
     show_summary = not quiet or total_trades > 0
     if show_summary:
@@ -697,96 +661,212 @@ if __name__ == "__main__":
                         help="Only output on trades/errors (ideal for high-frequency runs)")
     args = parser.parse_args()
 
-    # ---------------- DEMO MODE (pretty console output) ----------------
+    # ──────────────────────────────────────────────────────────────────────────
+    # DEMO MODE  –  realistic live-terminal simulation for README / presentation
+    # Run with:  DEMO_MODE=true python fastloop_improved.py
+    # ──────────────────────────────────────────────────────────────────────────
     if DEMO_MODE:
-        from datetime import datetime, timedelta
+        import time
         import random
+        from datetime import datetime, timedelta
 
-        base_prices = {
-            "BTC": 68405.00,
-            "ETH": 1974.63,
-            "SOL": 85.35,
+        # ── Real prices (Binance / CoinMarketCap, March 2026) ─────────────
+        BASE_PRICES = {
+            "BTC": 68172.91,
+            "ETH": 1995.74,
+            "SOL": 85.58,
         }
+        ASSET_EMOJIS = {"BTC": "₿", "ETH": "Ξ", "SOL": "◎"}
 
-        random.seed(77)
+        # ── ANSI colours ──────────────────────────────────────────────────
+        G    = "\033[32m";  R   = "\033[31m"
+        Y    = "\033[33m";  C   = "\033[36m"
+        DIM  = "\033[2m";   RST = "\033[0m";  BOLD = "\033[1m"
 
-        print("🚀 FastLoop Trader — Multi Asset Sprint Engine")
-        print("⚡ Real-Time Momentum Arbitrage System")
-        print("=" * 82)
+        def green(s):  return f"{G}{s}{RST}"
+        def red(s):    return f"{R}{s}{RST}"
+        def cyan(s):   return f"{C}{s}{RST}"
+        def bold(s):   return f"{BOLD}{s}{RST}"
+        def dim(s):    return f"{DIM}{s}{RST}"
+        def yellow(s): return f"{Y}{s}{RST}"
 
-        balance = 1000.00
-        target_balance = 2400.00
-        total_notional = 0.0
-        wins = 0
-        losses = 0
+        def hbar(ch="─", w=80): print(dim(ch * w))
 
+        random.seed(None)   # genuine randomness each run
+
+        # ── Trade sequence ────────────────────────────────────────────────
         assets_cycle = [
-            "BTC", "ETH", "SOL",
-            "BTC", "ETH", "SOL",
-            "BTC", "ETH", "SOL",
-            "BTC", "ETH", "SOL",
-            "BTC", "ETH", "SOL",
-            "BTC",
+            "BTC","ETH","SOL",
+            "BTC","ETH","SOL",
+            "BTC","BTC","ETH",
+            "SOL","BTC","ETH",
+            "SOL","BTC","ETH","SOL",
         ]
 
-        def now_ts(i: int) -> str:
-            t0 = datetime.now()
-            return (t0 + timedelta(seconds=i * 14)).strftime("%H:%M:%S")
+        INITIAL_BALANCE = 1_000.00
+        balance         = INITIAL_BALANCE
+        balance_history = [balance]
+        total_notional  = 0.0
+        wins = losses = skips = 0
+        trades_log = []
+        t0 = datetime.now()
+
+        # ── Header ────────────────────────────────────────────────────────
+        print()
+        hbar("═")
+        print(f"{BOLD}{C}  ⚡  FastLoop Trader  ·  5 / 15-min Sprint Engine  ·  Polymarket × Binance{RST}")
+        print(f"{DIM}  Momentum arbitrage  ·  BTC / ETH / SOL  ·  Fee-aware EV filter  ·  SDK v2{RST}")
+        hbar("═")
+        print(f"  {dim('Session start :')} {bold(t0.strftime('%Y-%m-%d  %H:%M:%S UTC'))}    "
+              f"{dim('Capital :')} {bold(f'${INITIAL_BALANCE:,.2f} USDC')}")
+        hbar()
+        time.sleep(0.3)
 
         for i, asset in enumerate(assets_cycle, 1):
-            # momentum window simulation
-            p_then = base_prices[asset] * (1 + random.uniform(-0.003, 0.003))
-            p_now = base_prices[asset] * (1 + random.uniform(-0.012, 0.012))
+            ts  = (t0 + timedelta(seconds=i * 19)).strftime("%H:%M:%S")
+            sym = ASSET_EMOJIS[asset]
+            base = BASE_PRICES[asset]
 
-            move_pct = ((p_now - p_then) / p_then) * 100
-            direction = "up" if move_pct >= 0 else "down"
+            # Per-asset realistic volatility
+            vol = {"BTC": 0.0018, "ETH": 0.0035, "SOL": 0.006}[asset]
+            p_then = round(base * (1 + random.gauss(0, vol * 0.4)), 2)
+            p_now  = round(base * (1 + random.gauss(0, vol)),       2)
+            move   = ((p_now - p_then) / p_then) * 100
+            direction = "UP" if move >= 0 else "DOWN"
 
-            # market odds simulation (yes/no)
-            yes = random.uniform(0.39, 0.53)
-            no = 1 - yes
+            # ── Weak signal → skip (realistic noise filter) ───────────────
+            if abs(move) < 0.12:
+                skips += 1
+                print(f"  {dim(ts)}  {sym} {dim(asset):<4}  "
+                      f"{dim(f'${p_now:>10,.2f}')}  "
+                      f"move {dim(f'{move:+.3f}%'):<18}  "
+                      f"{dim('⏸  weak signal — skip')}")
+                time.sleep(0.10)
+                continue
 
-            usd = random.choice([10, 12, 15])
+            # ── Market odds ───────────────────────────────────────────────
+            yes_p = round(random.uniform(0.37, 0.63), 2)
+            no_p  = round(1 - yes_p, 2)
+            fee   = 10   # Polymarket 5-min fee %
+
+            # ── Order ─────────────────────────────────────────────────────
+            side   = "YES" if direction == "UP" else "NO"
+            fill   = yes_p if side == "YES" else no_p
+            usd    = random.choice([8, 10, 12, 15])
+            shares = usd / fill if fill > 0 else 0
             total_notional += usd
 
-            action = "BUY YES" if direction == "up" else "BUY NO"
-            fill = yes if action == "BUY YES" else no
-            shares = usd / fill if fill > 0 else 0
-
-            # outcome simulation
-            win = random.random() > 0.42
+            # ── Realistic outcome (≈58 % win-rate → positive EV) ──────────
+            win = random.random() < 0.58
             if win:
-                pnl = usd * random.uniform(0.25, 0.45)  # bigger winners
+                pnl   = usd * (1 - fill) / fill * (1 - fee / 100)
                 wins += 1
-                badge = "🔥"
+                badge = green("✔  WIN ")
+                pnl_s = green(f"+${pnl:.2f}")
             else:
-                pnl = -usd * random.uniform(0.4, 0.7)  # smaller losses
+                pnl    = -usd * fill
                 losses += 1
-                badge = "❌"
+                badge  = red("✘  LOSS")
+                pnl_s  = red(f"-${abs(pnl):.2f}")
 
             balance += pnl
+            balance_history.append(balance)
 
-            print(f"\n[{now_ts(i)}] 🔎 {asset} Sprint Scan (5m)")
-            print(f"  Price Feed: ${p_now:,.2f}  |  Prev: ${p_then:,.2f}  |  Move: {move_pct:+.2f}%")
-            print(f"  Market Odds: YES ${yes:.2f} | NO ${no:.2f} | Fee: 10%")
-            print(f"  Execution: {action} ${usd:.2f}  |  Fill: ${fill:.2f}  |  Shares: ~{shares:.1f}")
-            print(f"  Result: {badge} {pnl:+.2f}  |  Balance: ${balance:.2f}")
+            move_s = green(f"{move:+.3f}%") if move > 0 else red(f"{move:+.3f}%")
+            bal_s  = (green if balance >= INITIAL_BALANCE else red)(f"${balance:,.2f}")
+            side_s = green(side) if side == "YES" else red(side)
 
-        # force demo ending balance for presentation
-        balance = random.uniform(2320, 2480)
-        
-        roi = ((balance - 1000.00) / 1000.00) * 100
+            trades_log.append(dict(
+                ts=ts, asset=asset, sym=sym, price=p_now, move=move,
+                side=side, usd=usd, shares=shares, fill=fill,
+                pnl=pnl, win=win, balance=balance,
+            ))
 
-        print("\n" + "=" * 82)
-        print("📊 SESSION SUMMARY")
-        print(f"  Trades:        {len(assets_cycle)}")
-        print(f"  Wins / Losses: {wins} / {losses}")
-        print(f"  Total Volume:  ${total_notional:.2f}")
-        print(f"  Final Balance: ${balance:.2f}")
-        print(f"  ROI:           {roi:+.2f}%")
-        print("=" * 82)
+            # ── Trade row ─────────────────────────────────────────────────
+            print()
+            hbar()
+            print(f"  {dim(ts)}  {bold(sym+' '+asset):<10}  "
+                  f"Price {bold(f'${p_now:>10,.2f}')}  {dim('prev')} ${p_then:>10,.2f}  "
+                  f"move {move_s}")
+            print(f"  {'':10}  "
+                  f"Odds  YES {cyan(str(yes_p))}  /  NO {cyan(str(no_p))}    "
+                  f"Fee {dim(str(fee)+'%')}    "
+                  f"Signal {bold(direction)}")
+            print(f"  {'':10}  "
+                  f"Order  BUY {side_s}  ${usd:.2f}  "
+                  f"{dim('fill @')}{fill:.2f}  {dim('≈')}{shares:.1f} shares    "
+                  f"{badge}  {pnl_s}    "
+                  f"Balance {bal_s}")
+            time.sleep(0.25)
+
+        # ── ASCII Balance Curve ───────────────────────────────────────────
+        print()
+        hbar("═")
+        print(f"{BOLD}  📈  Balance Curve{RST}  {dim('(USDC · each point = 1 executed trade)')}")
+        hbar()
+
+        CHART_W = 56
+        CHART_H = 9
+        bmin = min(balance_history)
+        bmax = max(balance_history)
+        bspan = max(bmax - bmin, 1.0)
+
+        for row in range(CHART_H, 0, -1):
+            threshold = bmin + (row / CHART_H) * bspan
+            label = f"${threshold:>8,.0f}"
+            bars  = ""
+            for b in balance_history[:CHART_W]:
+                if b >= threshold:
+                    # colour: green upper half, yellow lower half
+                    bars += (G if row > CHART_H // 2 else Y) + "█" + RST
+                else:
+                    bars += " "
+            print(f"  {dim(label)}  {bars}")
+
+        print(f"  {dim('          ')}  {dim('└' + '─' * CHART_W)}")
+        print(f"  {dim('          ')}    {dim('start')}"
+              f"{'':>{CHART_W - 20}}{dim('now →')}")
+
+        # ── Summary Table ─────────────────────────────────────────────────
+        total_trades = wins + losses
+        wr      = (wins / total_trades * 100) if total_trades else 0
+        avg_pnl = (sum(t["pnl"] for t in trades_log) / len(trades_log)) if trades_log else 0
+        roi     = (balance - INITIAL_BALANCE) / INITIAL_BALANCE * 100
+        net_pnl = balance - INITIAL_BALANCE
+
+        print()
+        hbar("═")
+        print(f"{BOLD}  📊  SESSION SUMMARY{RST}")
+        hbar("═")
+
+        rows = [
+            ("Scans run",         f"{len(assets_cycle)}"),
+            ("Skipped  (weak Δ)", f"{skips}"),
+            ("Trades executed",   f"{total_trades}"),
+            ("  ✔  Wins",         green(str(wins))),
+            ("  ✘  Losses",       red(str(losses))),
+            ("Win rate",          (green if wr >= 50 else red)(f"{wr:.1f}%")),
+            ("Avg P&L / trade",   (green if avg_pnl >= 0 else red)(f"${avg_pnl:+.2f}")),
+            ("Total volume",      f"${total_notional:.2f}"),
+            ("Net P&L",           bold((green if net_pnl >= 0 else red)(f"${net_pnl:+.2f}"))),
+            ("Starting capital",  f"${INITIAL_BALANCE:,.2f}"),
+            ("Final balance",     bold((green if balance >= INITIAL_BALANCE else red)(f"${balance:,.2f}"))),
+            ("ROI",               bold((green if roi >= 0 else red)(f"{roi:+.2f}%"))),
+        ]
+
+        for label, val in rows:
+            if label.startswith("──"):
+                hbar()
+            else:
+                print(f"  {dim('│')}  {label:<24}  {val}")
+
+        hbar("═")
+        print(f"  {dim('Powered by Simmer SDK · Polymarket · Binance Feed · FastLoop v2')}")
+        hbar("═")
+        print()
 
         sys.exit(0)
-    # ------------------------------------------------------------------
+    # ── END DEMO MODE ─────────────────────────────────────────────────────────
 
     if args.set:
         updates = {}
@@ -822,4 +902,3 @@ if __name__ == "__main__":
         smart_sizing=args.smart_sizing,
         quiet=args.quiet,
     )
-
