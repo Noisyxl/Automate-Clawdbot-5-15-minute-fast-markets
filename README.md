@@ -213,7 +213,7 @@ All trades are tagged with `source: "sdk:fastloop"`. This means:
 - Check Polymarket directly for active BTC fast markets
 
 **"No fast markets with >60s remaining"**
-- Current window is about to expire, next one isn't live yet
+- Current window  is about to expire, next one isn't live yet
 - Reduce `min_time_remaining` if you want to trade closer to expiry
 
 **"Import failed: Rate limit exceeded"**
