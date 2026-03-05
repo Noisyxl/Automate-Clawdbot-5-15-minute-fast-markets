@@ -703,7 +703,7 @@ if __name__ == "__main__":
             "SOL","BTC",
         ]
 
-        INITIAL_BALANCE = 1_000.00
+        INITIAL_BALANCE = 1_840.00
         balance         = INITIAL_BALANCE
         balance_history = [balance]
         total_notional  = 0.0
